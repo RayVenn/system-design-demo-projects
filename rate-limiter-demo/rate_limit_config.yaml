@@ -1,0 +1,42 @@
+# Rate Limiter Configuration
+# algorithm choices: token_bucket | leaking_bucket | fixed_window | sliding_window_log | sliding_window_counter
+
+rules:
+  global:
+    algorithm: token_bucket
+
+    # --- Token Bucket ---
+    # Tokens accumulate up to `capacity` at `refill_rate` tokens/sec.
+    # Each request consumes 1 token. Burst up to `capacity` is allowed.
+    token_bucket:
+      capacity: 10        # max tokens (burst size)
+      refill_rate: 5      # tokens added per second
+
+    # --- Leaking Bucket ---
+    # Requests queue up to `queue_capacity`. The queue drains at `leak_rate` req/sec.
+    # Models a FIFO queue with constant outflow — smooths bursty traffic.
+    leaking_bucket:
+      queue_capacity: 10  # max queue depth
+      leak_rate: 5        # requests drained per second
+
+    # --- Fixed Window ---
+    # Allows `max_requests` per `window_size` second window.
+    # Window resets hard on the clock boundary (e.g., every 60 s from epoch).
+    fixed_window:
+      max_requests: 10
+      window_size: 60     # seconds
+
+    # --- Sliding Window Log ---
+    # Keeps a sorted-set log of every request timestamp.
+    # Count = entries in [now - window_size, now]. Precise but memory-heavier.
+    sliding_window_log:
+      max_requests: 10
+      window_size: 60     # seconds
+
+    # --- Sliding Window Counter ---
+    # Approximates the sliding window using two adjacent fixed windows:
+    #   estimate = prev_count * (1 - elapsed/window_size) + current_count
+    # Low memory, good accuracy for smooth traffic.
+    sliding_window_counter:
+      max_requests: 10
+      window_size: 60     # seconds
