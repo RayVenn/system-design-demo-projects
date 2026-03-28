@@ -1,15 +1,8 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import (
-    Column,
-    DateTime,
-    ForeignKey,
-    Integer,
-    String,
-    create_engine,
-)
-from sqlalchemy.orm import DeclarativeBase, Session, relationship, sessionmaker
+from sqlalchemy import Column, DateTime, Integer, String, create_engine
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from config import settings
 
@@ -30,23 +23,9 @@ class FileRecord(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     original_name = Column(String, nullable=False)
     file_size = Column(Integer, nullable=False)       # bytes
-    total_chunks = Column(Integer, nullable=False)
-    chunk_size = Column(Integer, nullable=False)      # bytes per chunk (except last)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    chunks = relationship("ChunkRecord", back_populates="file", order_by="ChunkRecord.chunk_index")
-
-
-class ChunkRecord(Base):
-    __tablename__ = "chunks"
-
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    file_id = Column(String, ForeignKey("files.id"), nullable=False)
-    chunk_index = Column(Integer, nullable=False)     # 0-based order
     s3_key = Column(String, nullable=False)           # S3 object key
-    chunk_size = Column(Integer, nullable=False)      # actual size of this chunk
-
-    file = relationship("FileRecord", back_populates="chunks")
+    status = Column(String, nullable=False, default="pending")  # pending | ready
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 def init_db() -> None:

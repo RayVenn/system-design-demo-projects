@@ -12,8 +12,8 @@ class Settings(BaseSettings):
     # DB
     database_url: str = "sqlite:///./gdrive_demo.db"
 
-    # Chunking
-    chunk_size_bytes: int = 5 * 1024 * 1024  # 5 MB
+    # Presigned URLs
+    presigned_url_expiry_seconds: int = 3600  # 1 hour
 
     class Config:
         env_file = ".env"

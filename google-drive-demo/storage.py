@@ -34,20 +34,24 @@ def ensure_bucket_exists() -> None:
             raise
 
 
-def upload_chunk(s3_key: str, data: bytes) -> None:
+def generate_presigned_upload_url(s3_key: str) -> str:
     s3 = _s3_client()
-    s3.put_object(Bucket=settings.s3_bucket, Key=s3_key, Body=data)
+    return s3.generate_presigned_url(
+        "put_object",
+        Params={"Bucket": settings.s3_bucket, "Key": s3_key},
+        ExpiresIn=settings.presigned_url_expiry_seconds,
+    )
 
 
-def download_chunk(s3_key: str) -> bytes:
+def generate_presigned_download_url(s3_key: str) -> str:
     s3 = _s3_client()
-    response = s3.get_object(Bucket=settings.s3_bucket, Key=s3_key)
-    return response["Body"].read()
+    return s3.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": settings.s3_bucket, "Key": s3_key},
+        ExpiresIn=settings.presigned_url_expiry_seconds,
+    )
 
 
-def delete_chunks(s3_keys: list[str]) -> None:
-    if not s3_keys:
-        return
+def delete_object(s3_key: str) -> None:
     s3 = _s3_client()
-    objects = [{"Key": key} for key in s3_keys]
-    s3.delete_objects(Bucket=settings.s3_bucket, Delete={"Objects": objects})
+    s3.delete_object(Bucket=settings.s3_bucket, Key=s3_key)

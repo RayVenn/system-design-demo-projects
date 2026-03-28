@@ -1,87 +1,59 @@
-import os
 import uuid
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from config import settings
-from database import ChunkRecord, FileRecord, get_db
-from storage import upload_chunk
+from database import FileRecord, get_db
+from storage import generate_presigned_upload_url
 
 router = APIRouter(prefix="/files", tags=["files"])
 
 
-class UploadRequest(BaseModel):
-    local_path: str
+class UploadInitRequest(BaseModel):
+    filename: str
+    file_size: int  # bytes
 
 
-class UploadResponse(BaseModel):
+class UploadInitResponse(BaseModel):
     file_id: str
-    original_name: str
-    file_size: int
-    total_chunks: int
-    chunk_size: int
+    upload_url: str  # presigned S3 PUT URL — client uploads directly here
 
 
-@router.post("/upload", response_model=UploadResponse)
-def upload_file(req: UploadRequest, db: Session = Depends(get_db)):
-    path = Path(req.local_path)
-    if not path.exists():
-        raise HTTPException(status_code=400, detail=f"File not found: {req.local_path}")
-    if not path.is_file():
-        raise HTTPException(status_code=400, detail=f"Path is not a file: {req.local_path}")
+class UploadCompleteResponse(BaseModel):
+    file_id: str
+    status: str
 
-    file_size = path.stat().st_size
-    chunk_size = settings.chunk_size_bytes
+
+@router.post("/upload/init", response_model=UploadInitResponse)
+def upload_init(req: UploadInitRequest, db: Session = Depends(get_db)):
     file_id = str(uuid.uuid4())
-    original_name = path.name
+    s3_key = f"files/{file_id}"
 
-    chunk_records: list[ChunkRecord] = []
-    s3_keys_uploaded: list[str] = []
+    upload_url = generate_presigned_upload_url(s3_key)
 
-    try:
-        with open(path, "rb") as f:
-            chunk_index = 0
-            while True:
-                chunk_data = f.read(chunk_size)
-                if not chunk_data:
-                    break
-                s3_key = f"files/{file_id}/chunk_{chunk_index:06d}"
-                upload_chunk(s3_key, chunk_data)
-                s3_keys_uploaded.append(s3_key)
-                chunk_records.append(
-                    ChunkRecord(
-                        file_id=file_id,
-                        chunk_index=chunk_index,
-                        s3_key=s3_key,
-                        chunk_size=len(chunk_data),
-                    )
-                )
-                chunk_index += 1
-    except Exception as e:
-        # Clean up any uploaded chunks on failure
-        from storage import delete_chunks
-        delete_chunks(s3_keys_uploaded)
-        raise HTTPException(status_code=500, detail=f"Upload failed: {e}") from e
-
-    total_chunks = len(chunk_records)
     file_record = FileRecord(
         id=file_id,
-        original_name=original_name,
-        file_size=file_size,
-        total_chunks=total_chunks,
-        chunk_size=chunk_size,
+        original_name=req.filename,
+        file_size=req.file_size,
+        s3_key=s3_key,
+        status="pending",
     )
     db.add(file_record)
-    db.add_all(chunk_records)
     db.commit()
 
-    return UploadResponse(
-        file_id=file_id,
-        original_name=original_name,
-        file_size=file_size,
-        total_chunks=total_chunks,
-        chunk_size=chunk_size,
-    )
+    return UploadInitResponse(file_id=file_id, upload_url=upload_url)
+
+
+@router.post("/{file_id}/complete", response_model=UploadCompleteResponse)
+def upload_complete(file_id: str, db: Session = Depends(get_db)):
+    file_record: FileRecord | None = db.get(FileRecord, file_id)
+    if file_record is None:
+        raise HTTPException(status_code=404, detail=f"File not found: {file_id}")
+    if file_record.status != "pending":
+        raise HTTPException(status_code=400, detail=f"File is already {file_record.status}")
+
+    file_record.status = "ready"
+    db.commit()
+
+    return UploadCompleteResponse(file_id=file_id, status="ready")
